@@ -1,0 +1,249 @@
+ 
+====================================================================
+           LENOVO HELIX 20CH (2nd Gen) - CONFIGURAÇÃO DE TECLADO
+                          Guia definitivo para Linux
+====================================================================
+                    Baseado em Kubuntu (Debian/Ubuntu)
+                           Data: 15 de março de 2026
+====================================================================
+
+
+ÍNDICE
+--------------------------------------------------------------------
+1. INTRODUÇÃO
+2. PASSO 1: CARREGAR O MÓDULO CORRETO (hid-lenovo)
+3. PASSO 2: CORRIGIR A CLASSIFICAÇÃO DO DISPOSITIVO (UDEV)
+4. PASSO 3: REINICIAR O SISTEMA
+5. VERIFICAÇÃO PÓS-REINICIALIZAÇÃO
+6. AJUSTES FINAIS (CASO NECESSÁRIO)
+7. LIMPEZA DE CONFIGURAÇÕES ANTIGAS (PARA INSTALAÇÕES NOVAS)
+8. OBSERVAÇÕES IMPORTANTES
+9. REFERÊNCIAS DOS COMANDOS
+
+
+====================================================================
+1. INTRODUÇÃO
+====================================================================
+Este guia contém o procedimento exato e testado para fazer todas as
+teclas de função (Fn+F1 até Fn+F12) funcionarem corretamente no
+Lenovo ThinkPad Helix 20CH (2nd Gen) em distribuições Linux baseadas
+em Debian/Ubuntu, como Kubuntu.
+
+Problema original:
+- As teclas de volume (Fn+F2/F3), brilho (Fn+F5/F6), Wi-Fi, etc.,
+  não funcionavam.
+- O kernel detectava os eventos (evtest), mas o sistema gráfico (X11)
+  não os reconhecia como teclas de atalho.
+- Causa: o dispositivo "ITE Device(8595)" era classificado
+  incorretamente como tablet/pointer, em vez de teclado.
+
+Solução aplicada em 3 passos simples e permanentes.
+
+
+====================================================================
+2. PASSO 1: CARREGAR O MÓDULO CORRETO (hid-lenovo)
+====================================================================
+O módulo hid-lenovo é o driver nativo do kernel para a base do Helix.
+
+2.1. Verificar se o módulo existe no sistema:
+--------------------------------------------------------------------
+modinfo hid-lenovo
+
+(Se mostrar informações sobre o módulo, está disponível.)
+
+2.2. Carregar o módulo imediatamente:
+--------------------------------------------------------------------
+sudo modprobe hid-lenovo
+
+2.3. Tornar o carregamento permanente (após reinicializações):
+--------------------------------------------------------------------
+echo "hid-lenovo" | sudo tee /etc/modules-load.d/lenovo-helix.conf
+
+2.4. Verificar se o módulo foi carregado:
+--------------------------------------------------------------------
+lsmod | grep hid_lenovo
+
+Deverá mostrar algo como:
+hid_lenovo            20480  0
+
+
+====================================================================
+3. PASSO 2: CORRIGIR A CLASSIFICAÇÃO DO DISPOSITIVO (UDEV)
+====================================================================
+O dispositivo "ITE Device(8595)" precisa ser reclassificado de
+"tablet" para "teclado" no sistema de entrada.
+
+3.1. Identificar o caminho físico (ID_PATH) do dispositivo:
+--------------------------------------------------------------------
+# Liste todos os dispositivos de entrada
+ls /dev/input/event*
+
+# Encontre o dispositivo correto (geralmente event7 ou event8)
+# Teste com evtest para confirmar qual gera os eventos das teclas:
+sudo evtest
+   - Escolha o número do dispositivo (ex: 8)
+   - Pressione Fn+F2, Fn+F3 e veja se aparecem eventos como:
+     KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_BRIGHTNESSDOWN, etc.
+
+# Com o número confirmado (ex: event8), obtenha o ID_PATH:
+udevadm info -q property -n /dev/input/event8 | grep ID_PATH
+
+No Helix 20CH, o valor típico é:
+ID_PATH=pci-0000:00:14.0-usb-0:3.4:1.1
+
+3.2. Criar a regra udev:
+--------------------------------------------------------------------
+# Use o ID_PATH encontrado no comando acima
+echo 'ACTION=="add", SUBSYSTEM=="input", ENV{ID_PATH}=="pci-0000:00:14.0-usb-0:3.4:1.1", ENV{ID_INPUT_TABLET}="0", ENV{ID_INPUT_TABLET_PAD}="0", ENV{ID_INPUT_KEY}="1", ENV{ID_INPUT_KEYBOARD}="1"' | sudo tee /etc/udev/rules.d/99-lenovo-helix-keyboard.rules
+
+3.3. Aplicar as novas regras:
+--------------------------------------------------------------------
+sudo udevadm control --reload-rules
+sudo udevadm trigger -s input -c add
+
+3.4. Verificar se as propriedades foram alteradas:
+--------------------------------------------------------------------
+udevadm info -q property -n /dev/input/event8 | grep -E "ID_INPUT"
+
+A saída deve conter:
+ID_INPUT_TABLET=0
+ID_INPUT_TABLET_PAD=0
+ID_INPUT_KEY=1
+ID_INPUT_KEYBOARD=1
+
+(Substitua event8 pelo número correto do seu dispositivo.)
+
+
+====================================================================
+4. PASSO 3: REINICIAR O SISTEMA
+====================================================================
+Para que o servidor gráfico (X11/Wayland) reconheça a nova
+classificação, reinicie o computador:
+
+sudo reboot
+
+
+====================================================================
+5. VERIFICAÇÃO PÓS-REINICIALIZAÇÃO
+====================================================================
+Após o reboot, teste as teclas:
+
+- Fn+F2  → Diminuir volume
+- Fn+F3  → Aumentar volume
+- Fn+F4  → Mudo (se houver)
+- Fn+F5  → Diminuir brilho
+- Fn+F6  → Aumentar brilho
+- Fn+F7  → (geralmente alternar display)
+- Fn+F8  → (geralmente Wi-Fi)
+- Demais teclas de função devem funcionar conforme esperado.
+
+Se o volume já funcionar, mas o brilho não, vá para a seção 6.
+
+
+====================================================================
+6. AJUSTES FINAIS (CASO NECESSÁRIO)
+====================================================================
+6.1. Verificar suporte a backlight:
+--------------------------------------------------------------------
+ls /sys/class/backlight/
+
+Se aparecer uma pasta como "intel_backlight" ou "acpi_video0", o
+controle de brilho existe.
+
+6.2. No KDE Plasma (Kubuntu), configurar atalhos manualmente (se
+necessário):
+--------------------------------------------------------------------
+- Abra "Configurações do Sistema"
+- Vá para "Hardware" → "Energia" → "Gerenciamento de Energia"
+- Na aba "Brilho da Tela", verifique se as teclas de brilho estão
+  associadas corretamente.
+- Se não estiverem, você pode configurar manualmente em:
+  "Configurações do Sistema" → "Hardware" → "Atalhos de Teclado".
+
+Geralmente, após o passo 2, o sistema já reconhece os códigos
+KEY_BRIGHTNESSDOWN e KEY_BRIGHTNESSUP, e o KDE os associa
+automaticamente.
+
+6.3. Em outros ambientes gráficos (GNOME, XFCE, etc.):
+--------------------------------------------------------------------
+Os atalhos podem ser configurados nas respectivas ferramentas de
+configuração de teclado ou energia.
+
+
+====================================================================
+7. LIMPEZA DE CONFIGURAÇÕES ANTIGAS (PARA INSTALAÇÕES NOVAS)
+====================================================================
+Se você estiver reinstalando o sistema e quiser garantir que não
+haja resquícios de tentativas anteriores:
+
+7.1. Remover parâmetros de kernel obsoletos (se existirem):
+--------------------------------------------------------------------
+# Edite o arquivo do GRUB
+sudo nano /etc/default/grub
+
+# Remova opções como: acpi_backlight=vendor, acpi_osi=Linux, etc.
+# Mantenha apenas o necessário para seu sistema.
+
+# Atualize o GRUB
+sudo update-grub
+
+7.2. Remover regras udev antigas relacionadas à Lenovo:
+--------------------------------------------------------------------
+sudo rm -f /etc/udev/rules.d/*lenovo*
+sudo rm -f /etc/udev/rules.d/*helix*
+
+7.3. Remover módulos antigos carregados manualmente (não necessário,
+apenas garantir que o hid-lenovo seja o único):
+--------------------------------------------------------------------
+# O módulo thinkpad_acpi não é usado neste modelo, mas se estiver
+# carregado, não atrapalha.
+
+
+====================================================================
+8. OBSERVAÇÕES IMPORTANTES
+====================================================================
+- O procedimento é persistente: sobrevive a reinicializações e
+  atualizações do kernel.
+- A regra udev baseada em ID_PATH funciona mesmo se o dispositivo
+  mudar de eventX para eventY, pois identifica o hardware físico.
+- Em outras distribuições (Fedora, Arch, openSUSE), os comandos são
+  similares, mas os caminhos de configuração podem variar:
+  * Módulos: /etc/modules-load.d/ (systemd) ou /etc/modules (SysV)
+  * Udev: /etc/udev/rules.d/ é padrão.
+- O módulo hid-lenovo está presente no kernel desde a versão 4.20.
+  Em kernels muito antigos, pode ser necessário compilar ou atualizar.
+- Se você usar Wayland em vez de X11, o procedimento é o mesmo, pois
+  a classificação udev afeta a camada de entrada independentemente do
+  servidor gráfico.
+
+
+====================================================================
+9. REFERÊNCIAS DOS COMANDOS
+====================================================================
+Para referência rápida, os comandos essenciais agrupados:
+
+# Carregar módulo
+sudo modprobe hid-lenovo
+echo "hid-lenovo" | sudo tee /etc/modules-load.d/lenovo-helix.conf
+
+# Descobrir ID_PATH
+sudo evtest  (escolha o número do dispositivo)
+udevadm info -q property -n /dev/input/eventX | grep ID_PATH
+
+# Criar regra udev
+sudo nano /etc/udev/rules.d/99-lenovo-helix-keyboard.rules
+(ou usar o comando echo com o ID_PATH correto)
+
+# Aplicar regras
+sudo udevadm control --reload-rules
+sudo udevadm trigger -s input -c add
+
+# Verificar propriedades
+udevadm info -q property -n /dev/input/eventX | grep -E "ID_INPUT"
+
+# Reiniciar
+sudo reboot
+
+====================================================================
+                        FIM DO DOCUMENTO
+====================================================================
