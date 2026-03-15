@@ -1,0 +1,247 @@
+====================================================================
+ Complete Guide: Fixing Fn Keys (hot keys) on Lenovo ThinkPad Helix 20CH
+                for Kubuntu and Other Linux Distros
+====================================================================
+                    Based on Kubuntu (Debian/Ubuntu)
+                           Date: March 15, 2026
+====================================================================
+
+
+TABLE OF CONTENTS
+--------------------------------------------------------------------
+1. INTRODUCTION
+2. STEP 1: LOAD THE CORRECT MODULE (hid-lenovo)
+3. STEP 2: FIX DEVICE CLASSIFICATION (UDEV)
+4. STEP 3: REBOOT THE SYSTEM
+5. POST-REBOOT VERIFICATION
+6. FINAL ADJUSTMENTS (IF NEEDED)
+7. CLEANING OLD CONFIGURATIONS (FOR FRESH INSTALLS)
+8. IMPORTANT NOTES
+9. COMMAND REFERENCE
+
+
+====================================================================
+1. INTRODUCTION
+====================================================================
+This guide contains the exact and tested procedure to make all
+function keys (Fn+F1 through Fn+F12) work correctly on the
+Lenovo ThinkPad Helix 20CH (2nd Gen) in Debian/Ubuntu-based Linux
+distributions, such as Kubuntu.
+
+Original problem:
+- Volume keys (Fn+F2/F3), brightness (Fn+F5/F6), Wi-Fi, etc., did
+  not work.
+- The kernel detected the events (evtest), but the graphical system
+  (X11) did not recognize them as shortcut keys.
+- Cause: the "ITE Device(8595)" was incorrectly classified as a
+  tablet/pointer instead of a keyboard.
+
+Solution applied in 3 simple and permanent steps.
+
+====================================================================
+2. STEP 1: LOAD THE CORRECT MODULE (hid-lenovo)
+====================================================================
+The hid-lenovo module is the kernel's native driver for the Helix
+keyboard dock.
+
+2.1. Check if the module exists on the system:
+--------------------------------------------------------------------
+modinfo hid-lenovo
+
+(If information about the module is displayed, it is available.)
+
+2.2. Load the module immediately:
+--------------------------------------------------------------------
+sudo modprobe hid-lenovo
+
+2.3. Make the loading permanent (after reboots):
+--------------------------------------------------------------------
+echo "hid-lenovo" | sudo tee /etc/modules-load.d/lenovo-helix.conf
+
+2.4. Verify that the module is loaded:
+--------------------------------------------------------------------
+lsmod | grep hid_lenovo
+
+Should show something like:
+hid_lenovo            20480  0
+
+
+====================================================================
+3. STEP 2: FIX DEVICE CLASSIFICATION (UDEV)
+====================================================================
+The "ITE Device(8595)" needs to be reclassified from "tablet" to
+"keyboard" in the input system.
+
+3.1. Identify the physical path (ID_PATH) of the device:
+--------------------------------------------------------------------
+# List all input devices
+ls /dev/input/event*
+
+# Find the correct device (usually event7 or event8)
+# Test with evtest to confirm which one generates key events:
+sudo evtest
+   - Choose the device number (e.g., 8)
+   - Press Fn+F2, Fn+F3 and see if events like:
+     KEY_VOLUMEUP, KEY_VOLUMEDOWN, KEY_BRIGHTNESSDOWN, etc. appear.
+
+# With the confirmed number (e.g., event8), get the ID_PATH:
+udevadm info -q property -n /dev/input/event8 | grep ID_PATH
+
+On the Helix 20CH, the typical value is:
+ID_PATH=pci-0000:00:14.0-usb-0:3.4:1.1
+
+3.2. Create the udev rule:
+--------------------------------------------------------------------
+# Use the ID_PATH found in the previous command
+echo 'ACTION=="add", SUBSYSTEM=="input", ENV{ID_PATH}=="pci-0000:00:14.0-usb-0:3.4:1.1", ENV{ID_INPUT_TABLET}="0", ENV{ID_INPUT_TABLET_PAD}="0", ENV{ID_INPUT_KEY}="1", ENV{ID_INPUT_KEYBOARD}="1"' | sudo tee /etc/udev/rules.d/99-lenovo-helix-keyboard.rules
+
+3.3. Apply the new rules:
+--------------------------------------------------------------------
+sudo udevadm control --reload-rules
+sudo udevadm trigger -s input -c add
+
+3.4. Verify that the properties have changed:
+--------------------------------------------------------------------
+udevadm info -q property -n /dev/input/event8 | grep -E "ID_INPUT"
+
+The output should contain:
+ID_INPUT_TABLET=0
+ID_INPUT_TABLET_PAD=0
+ID_INPUT_KEY=1
+ID_INPUT_KEYBOARD=1
+
+(Replace event8 with the correct number for your device.)
+
+
+====================================================================
+4. STEP 3: REBOOT THE SYSTEM
+====================================================================
+For the graphical server (X11/Wayland) to recognize the new
+classification, reboot the computer:
+
+sudo reboot
+
+
+====================================================================
+5. POST-REBOOT VERIFICATION
+====================================================================
+After rebooting, test the keys:
+
+- Fn+F2  → Volume down
+- Fn+F3  → Volume up
+- Fn+F4  → Mute (if available)
+- Fn+F5  → Brightness down
+- Fn+F6  → Brightness up
+- Fn+F7  → (usually display toggle)
+- Fn+F8  → (usually Wi-Fi toggle)
+- Other function keys should work as expected.
+
+If volume works but brightness does not, proceed to section 6.
+
+
+====================================================================
+6. FINAL ADJUSTMENTS (IF NEEDED)
+====================================================================
+6.1. Check backlight support:
+--------------------------------------------------------------------
+ls /sys/class/backlight/
+
+If a folder like "intel_backlight" or "acpi_video0" appears, brightness
+control is available.
+
+6.2. In KDE Plasma (Kubuntu), manually configure shortcuts (if
+necessary):
+--------------------------------------------------------------------
+- Open "System Settings"
+- Go to "Hardware" → "Power Management" → "Energy Saving"
+- In the "Display Brightness" tab, verify that the brightness keys
+  are correctly associated.
+- If not, you can manually set them in:
+  "System Settings" → "Hardware" → "Shortcuts".
+
+Usually, after step 2, the system already recognizes the
+KEY_BRIGHTNESSDOWN and KEY_BRIGHTNESSUP codes, and KDE associates them
+automatically.
+
+6.3. In other desktop environments (GNOME, XFCE, etc.):
+--------------------------------------------------------------------
+Shortcuts can be configured in the respective keyboard or power
+management settings tools.
+
+
+====================================================================
+7. CLEANING OLD CONFIGURATIONS (FOR FRESH INSTALLS)
+====================================================================
+If you are reinstalling the system and want to ensure no remnants of
+previous attempts remain:
+
+7.1. Remove obsolete kernel parameters (if any):
+--------------------------------------------------------------------
+# Edit the GRUB file
+sudo nano /etc/default/grub
+
+# Remove options like: acpi_backlight=vendor, acpi_osi=Linux, etc.
+# Keep only what is necessary for your system.
+
+# Update GRUB
+sudo update-grub
+
+7.2. Remove old udev rules related to Lenovo:
+--------------------------------------------------------------------
+sudo rm -f /etc/udev/rules.d/*lenovo*
+sudo rm -f /etc/udev/rules.d/*helix*
+
+7.3. Remove manually loaded old modules (not necessary, just ensure
+hid-lenovo is the only one):
+--------------------------------------------------------------------
+# The thinkpad_acpi module is not used on this model, but if loaded,
+# it does not interfere.
+
+
+====================================================================
+8. IMPORTANT NOTES
+====================================================================
+- The procedure is persistent: it survives reboots and kernel updates.
+- The udev rule based on ID_PATH works even if the device changes from
+  eventX to eventY, as it identifies the physical hardware.
+- On other distributions (Fedora, Arch, openSUSE), commands are
+  similar, but configuration paths may vary:
+  * Modules: /etc/modules-load.d/ (systemd) or /etc/modules (SysV)
+  * Udev: /etc/udev/rules.d/ is standard.
+- The hid-lenovo module is present in the kernel since version 4.20.
+  On very old kernels, compilation or upgrade may be needed.
+- If you use Wayland instead of X11, the procedure is the same, as
+  udev classification affects the input layer regardless of the
+  graphical server.
+
+
+====================================================================
+9. COMMAND REFERENCE
+====================================================================
+For quick reference, the essential commands grouped:
+
+# Load module
+sudo modprobe hid-lenovo
+echo "hid-lenovo" | sudo tee /etc/modules-load.d/lenovo-helix.conf
+
+# Discover ID_PATH
+sudo evtest  (choose the device number)
+udevadm info -q property -n /dev/input/eventX | grep ID_PATH
+
+# Create udev rule
+sudo nano /etc/udev/rules.d/99-lenovo-helix-keyboard.rules
+(or use the echo command with the correct ID_PATH)
+
+# Apply rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger -s input -c add
+
+# Verify properties
+udevadm info -q property -n /dev/input/eventX | grep -E "ID_INPUT"
+
+# Reboot
+sudo reboot
+
+====================================================================
+                        END OF DOCUMENT
+====================================================================
